@@ -1,0 +1,17 @@
+<!-- The default logback configuration that Play uses in dev mode if no other configuration is provided -->
+<configuration>
+
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>[%thread] %highlight(%-5level) %cyan(%logger{15}) - %msg %n</pattern>
+        </encoder>
+    </appender>
+
+    <logger name="com.nikolastojiljkovic.akka.coordination.lease" level="DEBUG" />
+    <logger name="org.redisson" level="INFO" />
+
+    <root level="WARN">
+        <appender-ref ref="STDOUT" />
+    </root>
+
+</configuration>
