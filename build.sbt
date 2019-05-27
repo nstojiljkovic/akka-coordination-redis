@@ -2,7 +2,7 @@ import sbt.Resolver.mavenLocal
 import ReleaseTransformations._
 import sbt.Keys.{libraryDependencies, name}
 
-name := "Akka Coordination Redis Lease"
+name := "Akka Coordination Redis"
 val scalaV = "2.12.8"
 val akkaVersion = "2.5.23"
 val configVersion = "1.3.4"
@@ -34,6 +34,20 @@ def macroSettings(scaladocFor210: Boolean): Seq[Setting[_]] = Seq(
       case _ => (sources in(Compile, doc)).value
     }
   }
+)
+
+lazy val Javadoc = config("genjavadoc") extend Compile
+
+lazy val javadocSettings = inConfig(Javadoc)(Defaults.configSettings) ++ Seq(
+  addCompilerPlugin("com.typesafe.genjavadoc" %% "genjavadoc-plugin" % "0.13" cross CrossVersion.full),
+  scalacOptions += s"-P:genjavadoc:out=${target.value}/java",
+  packageDoc in Compile := (packageDoc in Javadoc).value,
+  sources in Javadoc :=
+    (target.value / "java" ** "*.java").get ++
+      (sources in Compile).value.filter(_.getName.endsWith(".java")),
+  javacOptions in Javadoc := Seq(),
+  artifactName in packageDoc in Javadoc := ((sv, mod, art) =>
+    "" + mod.name + "_" + sv.binary + "-" + mod.revision + "-javadoc.jar")
 )
 
 evictionWarningOptions in update := EvictionWarningOptions.default
@@ -81,8 +95,6 @@ lazy val commonSettings =
           </developer>
         </developers>),
     publishArtifact in Test := false,
-    publishArtifact in(Compile, packageDoc) := false,
-    publishArtifact in packageDoc := false,
     sources in(Compile, doc) := Seq.empty,
 
     resolvers ++= Seq(
@@ -110,7 +122,7 @@ lazy val commonSettings =
       pushChanges),
   )
 
-lazy val akkaLeaseJava = (project in file(".")).
+lazy val akkaLeaseJava = (project in file(".")).configs(Javadoc).settings(javadocSettings: _*).
   settings(commonSettings: _*).
   settings(macroSettings(scaladocFor210 = false)).
   settings(
