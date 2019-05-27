@@ -29,7 +29,7 @@ Redis based distributed reentrant Lock object for Java and implements `java.util
 means that only lock owner thread can unlock it otherwise `IllegalMonitorStateException` would be thrown. 
 On the other hand, [Akka Coordination Lease API](https://doc.akka.io/docs/akka/2.5.23/coordination.html) has configurable owner (without 
 locking the leases to threads) so `akka-coordination-redis` implementation uses custom internal 
-[`RedissonLockWithCustomOwner`](https://github.com/nstojiljkovic/akka-coordination-redis/blob/master/src/main/scala/org/redisson/RedissonLockWithCustomOwner.scala).
+[`RedissonLockWithCustomOwner`](https://github.com/nstojiljkovic/akka-coordination-redis/blob/master/src/main/scala/com/nikolastojiljkovic/akka/coordination/lease/RedissonLockWithCustomOwner.scala).
 Do not use it directly as it does not comply with the Java lock specification. That also means that you should, as per Akka Coordination
 specification, take special care when picking up a lease name that will be unique for your use case.
 * [RedissonRedLock](https://github.com/redisson/redisson/blob/master/redisson/src/main/java/org/redisson/RedissonRedLock.java) has bunch of

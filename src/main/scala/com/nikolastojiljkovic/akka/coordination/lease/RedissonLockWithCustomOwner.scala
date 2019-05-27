@@ -1,5 +1,6 @@
-package org.redisson
+package com.nikolastojiljkovic.akka.coordination.lease
 
+import org.redisson.RedissonLock
 import org.redisson.command.CommandAsyncExecutor
 
 class RedissonLockWithCustomOwner(val commandAsyncExecutor: CommandAsyncExecutor, val name: String, val owner: String) extends RedissonLock(commandAsyncExecutor, name) {
@@ -9,4 +10,3 @@ class RedissonLockWithCustomOwner(val commandAsyncExecutor: CommandAsyncExecutor
     owner
   }
 }
-

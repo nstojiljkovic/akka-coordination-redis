@@ -8,7 +8,7 @@ import akka.actor.ExtendedActorSystem
 import akka.coordination.lease.LeaseSettings
 import akka.coordination.lease.scaladsl.Lease
 import com.typesafe.config.{Config, ConfigFactory, ConfigRenderOptions}
-import org.redisson.{Redisson, RedissonLockWithCustomOwner, RedissonRedLockWithCustomMinLocks}
+import org.redisson.Redisson
 import org.redisson.api.RLock
 import org.redisson.config.{Config => RedissonConfig}
 import org.slf4j.LoggerFactory
