@@ -122,7 +122,7 @@ lazy val commonSettings =
       pushChanges),
   )
 
-lazy val akkaLeaseJava = (project in file(".")).configs(Javadoc).settings(javadocSettings: _*).
+lazy val akkaRedisLease = (project in file(".")).configs(Javadoc).settings(javadocSettings: _*).
   settings(commonSettings: _*).
   settings(macroSettings(scaladocFor210 = false)).
   settings(
