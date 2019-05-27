@@ -15,10 +15,23 @@ class RedissonRedLockLeaseSpec extends WordSpec with Matchers with BeforeAndAfte
 
   implicit private val actorSystem: ActorSystem = ActorSystem("AkkaCoordinationRedis")
   private val atMost = 5 minutes
-  private val (startRedisCmd, stopRedisCmd) = if (System.getProperty("os.name").toLowerCase.contains("mac")) {
-    ("brew services start redis", "brew services stop redis")
+  private val startRedisCmd = if (System.getenv("REDIS_START_CMD") == null) {
+    if (System.getProperty("os.name").toLowerCase.contains("mac")) {
+      "brew services start redis"
+    } else {
+      "service redis-server start"
+    }
   } else {
-    ("service redis start", "service redis stop")
+    System.getenv("REDIS_START_CMD")
+  }
+  private val stopRedisCmd = if (System.getenv("REDIS_STOP_CMD") == null) {
+    if (System.getProperty("os.name").toLowerCase.contains("mac")) {
+      "brew services stop redis"
+    } else {
+      "service redis-server stop"
+    }
+  } else {
+    System.getenv("REDIS_STOP_CMD")
   }
 
   override def afterAll(): Unit = {
@@ -92,8 +105,10 @@ class RedissonRedLockLeaseSpec extends WordSpec with Matchers with BeforeAndAfte
       Await.result(leaseA.acquire(_ => probe.ref ! "lease-lost"), atMost) should equal(true)
       leaseA.checkLease should equal(true)
 
-      System.out.println("Stopping Redis...")
-      getRuntime.exec(stopRedisCmd)
+      System.out.println("Stopping Redis... " + stopRedisCmd)
+      val stop = getRuntime.exec(Array("bash", "-c", stopRedisCmd))
+      System.out.println(scala.io.Source.fromInputStream(stop.getErrorStream).mkString)
+      System.out.println(scala.io.Source.fromInputStream(stop.getInputStream).mkString)
 
       System.out.println("Wait till we get lease-lost message...")
       probe.expectMsg(10 seconds, "lease-lost")
@@ -102,10 +117,12 @@ class RedissonRedLockLeaseSpec extends WordSpec with Matchers with BeforeAndAfte
       System.out.println("Wait a bit more till we start Redis again...")
       Thread.sleep(10000)
 
-      System.out.println("Starting Redis...")
-      getRuntime.exec(startRedisCmd)
+      System.out.println("Starting Redis... " + startRedisCmd)
+      val start = getRuntime.exec(Array("bash", "-c", startRedisCmd))
+      System.out.println(scala.io.Source.fromInputStream(start.getErrorStream).mkString)
+      System.out.println(scala.io.Source.fromInputStream(start.getInputStream).mkString)
 
-      Thread.sleep(10000)
+      Thread.sleep(5000)
 
       val leaseB = LeaseProvider.get(actorSystem).getLease(lockName, "redisson-red-lock-lease", "owner2")
       leaseB.settings.leaseName should equal(lockName)

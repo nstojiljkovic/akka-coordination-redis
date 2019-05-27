@@ -1,0 +1,12 @@
+services:
+  - docker
+branches:
+  except:
+    - gh-pages
+script:
+- docker-compose run sbt-redis bash -c "./build/build.sh"
+cache:
+  directories:
+  - $HOME/.ivy2/cache
+  - $HOME/.sbt/boot/
+sudo: false
