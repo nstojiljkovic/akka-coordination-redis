@@ -14,17 +14,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package com.nikolastojiljkovic.akka.coordination.lease
+package com.nikolastojiljkovic.akka.coordination
 
-import org.redisson.RedissonLock
-import org.redisson.command.CommandAsyncExecutor
+import scala.util.{Failure, Try}
 
-class RedissonLockWithCustomOwner(val commandAsyncExecutor: CommandAsyncExecutor, val name: String, val owner: String)
-  extends RedissonLock(commandAsyncExecutor, name) {
+package object lease {
+  def logTry[A](computation: => A)(implicit logger: LogHelper): Try[A] = {
+    Try(computation) recoverWith {
+      case e: Throwable =>
+        logger.error(e.getMessage, e)
+        Failure(e)
+    }
+  }
 
-  override protected def getLockName(threadId: Long): String = {
-    // as per Akka coordination specs, do not respect thread ids
-    // owner + ":" + threadId
-    owner
+  def logTry[A](errorMessage: String)(computation: => A)(implicit logger: LogHelper): Try[A] = {
+    Try(computation) recoverWith {
+      case e: Throwable =>
+        logger.error(e.getMessage, e)
+        Failure(e)
+    }
   }
 }

@@ -36,6 +36,31 @@ def macroSettings(scaladocFor210: Boolean): Seq[Setting[_]] = Seq(
   }
 )
 
+def updateReadmeVersion(selectVersion: sbtrelease.Versions => String) =
+  ReleaseStep(action = st => {
+
+    val newVersion = selectVersion(st.get(ReleaseKeys.versions).get)
+
+    import scala.io.Source
+    import java.io.PrintWriter
+
+    val pattern = """"com.github.nstojiljkovic" %% "akka-coordination-redis" % "(.*)"""".r
+
+    val fileName = "README.md"
+    val content = Source.fromFile(fileName).getLines.mkString("\n")
+
+    val newContent =
+      pattern.replaceAllIn(content,
+        m => m.matched.replaceAllLiterally(m.subgroups.head, newVersion))
+
+    new PrintWriter(fileName) { write(newContent); close }
+
+    val vcs = Project.extract(st).get(releaseVcs).get
+    vcs.add(fileName).!
+
+    st
+  })
+
 lazy val Javadoc = config("genjavadoc") extend Compile
 
 lazy val javadocSettings = inConfig(Javadoc)(Defaults.configSettings) ++ Seq(
@@ -113,10 +138,12 @@ lazy val commonSettings =
       inquireVersions,
       runClean,
       setReleaseVersion,
+      updateReadmeVersion(_._1),
       commitReleaseVersion,
       tagRelease,
       releaseStepCommand("publishSigned"),
       setNextVersion,
+      updateReadmeVersion(_._2),
       commitNextVersion,
       releaseStepCommand("sonatypeReleaseAll"),
       pushChanges),
@@ -131,7 +158,7 @@ lazy val akkaRedisLease = (project in file(".")).configs(Javadoc).settings(javad
 
     libraryDependencies ++= Seq(
       // redisson
-      "org.redisson" % "redisson" % "3.10.7",
+      "org.redisson" % "redisson" % "3.11.0",
 
       // akka
       "com.typesafe.akka" %% "akka-actor" % akkaVersion,

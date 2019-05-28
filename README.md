@@ -1,5 +1,4 @@
-akka-coordination-redis
-=========
+# akka-coordination-redis
 
 [Akka Coordination Lease](https://doc.akka.io/docs/akka/2.5.23/coordination.html) implementation using [Redis](https://redis.io/)
  and [Redlock algorithm](https://redis.io/topics/distlock). 
@@ -25,25 +24,25 @@ The library is currently compatible with Akka 2.5.22 and 2.5.23.
 not map 1:1 to Akka Lease API. Notable changes and tweaks are listed bellow:
 
 * [RedissonRedLock](https://github.com/redisson/redisson/blob/master/redisson/src/main/java/org/redisson/RedissonRedLock.java) is
-Redis based distributed reentrant Lock object for Java and implements `java.util.concurrent.locks.Lock` interface. It 
-means that only lock owner thread can unlock it otherwise `IllegalMonitorStateException` would be thrown. 
-On the other hand, [Akka Coordination Lease API](https://doc.akka.io/docs/akka/2.5.23/coordination.html) has configurable owner (without 
-locking the leases to threads) so `akka-coordination-redis` implementation uses custom internal 
-[`RedissonLockWithCustomOwner`](https://github.com/nstojiljkovic/akka-coordination-redis/blob/master/src/main/scala/com/nikolastojiljkovic/akka/coordination/lease/RedissonLockWithCustomOwner.scala).
-Do not use it directly as it does not comply with the Java lock specification. That also means that you should, as per Akka Coordination
-specification, take special care when picking up a lease name that will be unique for your use case.
+  Redis based distributed reentrant Lock object for Java and implements `java.util.concurrent.locks.Lock` interface. It 
+  means that only lock owner thread can unlock it otherwise `IllegalMonitorStateException` would be thrown. 
+  On the other hand, [Akka Coordination Lease API](https://doc.akka.io/docs/akka/2.5.23/coordination.html) has configurable owner (without 
+  locking the leases to threads) so `akka-coordination-redis` implementation uses custom internal 
+  [`RedissonLockWithCustomOwner`](https://github.com/nstojiljkovic/akka-coordination-redis/blob/master/src/main/scala/com/nikolastojiljkovic/akka/coordination/lease/RedissonLockWithCustomOwner.scala).
+  Do not use it directly as it does not comply with the Java lock specification. That also means that you should, as per Akka Coordination
+  specification, take special care when picking up a lease name that will be unique for your use case.
 * [RedissonRedLock](https://github.com/redisson/redisson/blob/master/redisson/src/main/java/org/redisson/RedissonRedLock.java) has bunch of
-functions which throw `UnsupportedOperationException` (and which would otherwise be useful for implementing Akka Coordination Lease). The `akka-coordination-redis` library has
-custom logic implemented in [`RedissonRedLockLease`](https://github.com/nstojiljkovic/akka-coordination-redis/blob/master/src/main/scala/com/nikolastojiljkovic/akka/coordination/lease/RedissonRedLockLease.scala)
-to overcome the missing functionality from [Redisson](https://github.com/redisson/redisson) RedLock implementation.
+  functions which throw `UnsupportedOperationException` (and which would otherwise be useful for implementing Akka Coordination Lease). The `akka-coordination-redis` library has
+  custom logic implemented in [`RedissonRedLockLease`](https://github.com/nstojiljkovic/akka-coordination-redis/blob/master/src/main/scala/com/nikolastojiljkovic/akka/coordination/lease/RedissonRedLockLease.scala)
+  to overcome the missing functionality from [Redisson](https://github.com/redisson/redisson) RedLock implementation.
   * Expiry time is calculated from all acquired locks with auto-estimated drift (based on communication speed) deducted from it. 
-  This means that expiry time will always be a bit less than `heartbeat-timeout` configuration option (so count it in when configuring).
+    This means that expiry time will always be a bit less than `heartbeat-timeout` configuration option (so count it in when configuring).
   * It is assumed that every server configured for each of the (single) locks constituting a distributed RedLock will be actually a single 
-  Redis server (though that is not a requirement). `RedissonRedLockLease` listens for disconnects from each of the configured servers and opts 
-  to mark lease as lost on any server disconnect. So if you have anything besides `singleServerConfig` as a single lock server (for example Redis cluster), note that
-  acquired leases will be marked as lost if any of the cluster servers goes down. This just means that you should not reconfigure/reprovision 
-  both Akka cluster and Redis servers at the same time if you are using lease as an additional safety measure (to ensure that 
-  two singletons don’t run at the same time or that shard does not run on two nodes).
+    Redis server (though that is not a requirement). `RedissonRedLockLease` listens for disconnects from each of the configured servers and opts 
+    to mark lease as lost on any server disconnect. So if you have anything besides `singleServerConfig` as a single lock server (for example Redis cluster), note that
+    acquired leases will be marked as lost if any of the cluster servers goes down. This just means that you should not reconfigure/reprovision 
+    both Akka cluster and Redis servers at the same time if you are using lease as an additional safety measure (to ensure that 
+    two singletons don’t run at the same time or that shard does not run on two nodes).
   
 ## Warning
 
@@ -126,7 +125,3 @@ tests. You can run the full suite of tests using sbt:
 ## License
 
 See the [LICENSE](https://github.com/nstojiljkovic/akka-coordination-redis/blob/master/LICENSE) file for details.
-
-## Maintainers
-
-- @nstojiljkovic

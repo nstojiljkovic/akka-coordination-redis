@@ -16,15 +16,18 @@
 
 package com.nikolastojiljkovic.akka.coordination.lease
 
-import org.redisson.RedissonLock
-import org.redisson.command.CommandAsyncExecutor
+import scala.language.implicitConversions
 
-class RedissonLockWithCustomOwner(val commandAsyncExecutor: CommandAsyncExecutor, val name: String, val owner: String)
-  extends RedissonLock(commandAsyncExecutor, name) {
+case class LogHelper(error: (String, Throwable) => Unit)
 
-  override protected def getLockName(threadId: Long): String = {
-    // as per Akka coordination specs, do not respect thread ids
-    // owner + ":" + threadId
-    owner
-  }
+object LogHelper {
+  implicit def loggingAdapter2Logger(implicit loggingAdapter: akka.event.LoggingAdapter): LogHelper =
+    LogHelper((m, t) => {
+      loggingAdapter.error(t, m)
+    })
+
+  implicit def slf4j2Logger(implicit logger: org.slf4j.Logger): LogHelper =
+    LogHelper((m, t) => {
+      logger.error(m, t)
+    })
 }
