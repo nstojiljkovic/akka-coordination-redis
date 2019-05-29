@@ -9,7 +9,7 @@ Add `akka-coordination-redis` to sbt dependencies:
 
 ```
 libraryDependencies ++= Seq(
-  "com.github.nstojiljkovic" %% "akka-coordination-redis" % "0.0.1"
+  "com.github.nstojiljkovic" %% "akka-coordination-redis" % "0.0.3"
 )
 ```
 
