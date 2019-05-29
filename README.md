@@ -1,5 +1,9 @@
 # akka-coordination-redis
 
+[![Build Status](https://travis-ci.org/nstojiljkovic/akka-coordination-redis.svg?branch=master)](https://travis-ci.org/nstojiljkovic/akka-coordination-redis)
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/45cbfc3238074124b2097e24d921efda)](https://www.codacy.com/app/nstojiljkovic/akka-coordination-redis?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=nstojiljkovic/akka-coordination-redis&amp;utm_campaign=Badge_Grade)
+[![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.github.nstojiljkovic/akka-coordination-redis_2.12/badge.svg)](https://maven-badges.herokuapp.com/maven-central/com.github.nstojiljkovic/akka-coordination-redis_2.12)
+
 [Akka Coordination Lease](https://doc.akka.io/docs/akka/2.5.23/coordination.html) implementation using [Redis](https://redis.io/)
  and [Redlock algorithm](https://redis.io/topics/distlock). 
 
