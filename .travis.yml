@@ -1,10 +1,11 @@
+language: scala
 services:
   - docker
 branches:
   except:
     - gh-pages
 script:
-- docker-compose run sbt-redis bash -c "./build/build.sh"
+- docker-compose run sbt-redis bash -c "./build/test.sh"
 cache:
   directories:
   - $HOME/.ivy2/cache

@@ -82,7 +82,6 @@ evictionWarningOptions in update := EvictionWarningOptions.default
 
 lazy val commonSettings =
   Seq(
-    parallelExecution in Test := false,
     evictionWarningOptions in update := EvictionWarningOptions.default
       .withWarnTransitiveEvictions(false)
       .withWarnDirectEvictions(false)
@@ -143,7 +142,7 @@ lazy val commonSettings =
       tagRelease,
       releaseStepCommand("publishSigned"),
       setNextVersion,
-      updateReadmeVersion(_._2),
+      // updateReadmeVersion(_._2),
       commitNextVersion,
       releaseStepCommand("sonatypeReleaseAll"),
       pushChanges),
@@ -153,6 +152,8 @@ lazy val akkaRedisLease = (project in file(".")).configs(Javadoc).settings(javad
   settings(commonSettings: _*).
   settings(macroSettings(scaladocFor210 = false)).
   settings(
+    logBuffered in Test := false,
+    parallelExecution in Test := false,
     name := "akka-coordination-redis",
     description := "Akka Lease implementation using Redis",
 

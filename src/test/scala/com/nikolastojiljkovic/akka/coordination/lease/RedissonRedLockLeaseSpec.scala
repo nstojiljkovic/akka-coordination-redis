@@ -133,14 +133,14 @@ class RedissonRedLockLeaseSpec extends WordSpec with Matchers with BeforeAndAfte
       leaseA.checkLease should equal(false)
 
       log.info("Wait a bit more till we start Redis again...")
-      Thread.sleep(leaseA.settings.timeoutSettings.operationTimeout.toMillis)
+      Thread.sleep(leaseA.settings.timeoutSettings.heartbeatInterval.toMillis)
 
       log.info("Starting Redis... " + startRedisCmd)
       val start = getRuntime.exec(Array("bash", "-c", startRedisCmd))
       log.info(scala.io.Source.fromInputStream(start.getErrorStream).mkString)
       log.info(scala.io.Source.fromInputStream(start.getInputStream).mkString)
 
-      Thread.sleep(leaseA.settings.timeoutSettings.operationTimeout.toMillis)
+      Thread.sleep(leaseA.settings.timeoutSettings.heartbeatInterval.toMillis)
 
       val leaseB = LeaseProvider.get(actorSystem).getLease(lockName, "redisson-red-lock-lease", "owner2")
       leaseB.settings.leaseName should equal(lockName)

@@ -33,12 +33,12 @@ import org.redisson.config.{Config => RedissonConfig}
 import org.slf4j.LoggerFactory
 
 import collection.JavaConverters._
+import LogHelper._
+import RedissonRedLockLease._
 import scala.compat.java8.FutureConverters
 import scala.concurrent.{Await, ExecutionContext, Future, TimeoutException}
-import scala.concurrent.duration.Duration
 import scala.concurrent.duration._
-import scala.language.implicitConversions
-import scala.language.postfixOps
+import scala.language.{implicitConversions, postfixOps}
 import scala.util.{Failure, Success}
 
 object RedissonRedLockLease {
@@ -68,6 +68,8 @@ object RedissonRedLockLease {
     config: LockConfig
   ) extends Data
 
+  final case class LockAndClient(lock: RLock, client: Redisson)
+
   final case class StateDataWithLock
   (
     pipeTo: Option[ActorRef],
@@ -75,7 +77,7 @@ object RedissonRedLockLease {
     lockedCount: Int,
     redLock: RedissonRedLockWithCustomMinLocks,
     clients: Seq[Redisson],
-    locks: Seq[(RLock, Redisson)],
+    locks: Seq[LockAndClient],
     leaseLostCallbacks: Seq[Option[Throwable] => Unit],
     expireTask: Option[TimerTask] = None
   ) extends Data {
@@ -89,8 +91,8 @@ object RedissonRedLockLease {
         case _ =>
       }
       locks.foreach(lock => {
-        RedissonManager.removeListenerOnClientShutdown(lock._2, parent)
-        RedissonManager.removeLockReference(actorSystem, lock._2, lock._1)
+        RedissonManager.removeListenerOnClientShutdown(lock.client, parent)
+        RedissonManager.removeLockReference(actorSystem, lock.client, lock.lock)
       })
       StateDataWithoutLock(config)
     }
@@ -114,7 +116,6 @@ object RedissonRedLockLease {
   class ActorFSM(lockedCountChangeCallback: Int => Unit, leaseSettings: LeaseSettings) extends FSM[State, Data] {
 
     import context.dispatcher
-    import LogHelper._
 
     implicit val logger: LoggingAdapter = log
     implicit val actorSystem: ActorSystem = context.system
@@ -156,9 +157,9 @@ object RedissonRedLockLease {
             val lock = new RedissonLockWithCustomOwner(client.getConnectionManager.getCommandExecutor, leaseSettings.leaseName, leaseSettings.ownerName)
             RedissonManager.addLockReference(context.system, client, lock, Thread.currentThread.getId)
             RedissonManager.addListenerOnClientShutdown(client, t => self ! LeaseLost(t), this)
-            (lock, client)
+            LockAndClient(lock, client)
           })
-          val redLock = new RedissonRedLockWithCustomMinLocks(s.config.minLocksAmount, locks.map(_._1): _*)
+          val redLock = new RedissonRedLockWithCustomMinLocks(s.config.minLocksAmount, locks.map(_.lock): _*)
           val deltaTime = System.currentTimeMillis() - startTime
           FutureConverters.toScala(
             redLock.tryLockAsync(
@@ -229,8 +230,8 @@ object RedissonRedLockLease {
         if (s.lockedCount == 1) {
           goto(Idle).using(s.looseLease(ReleaseResult(true), this))
         } else {
-          s.pipeTo.foreach(_ ! ReleaseResult(false))
           s.config.lockedCountChangeCallback(s.lockedCount - 1)
+          s.pipeTo.foreach(_ ! ReleaseResult(false))
           goto(Locked).using(s.copy(
             lockedCount = s.lockedCount - 1
           ))
@@ -248,6 +249,8 @@ object RedissonRedLockLease {
         goto(Idle).using(s.looseLease(LockResult(locked), this))
 
       case Event(LockResult(locked), s: StateDataWithLock) if locked =>
+        s.config.lockedCountChangeCallback(s.lockedCount + 1)
+
         s.expireTask match {
           case Some(task) =>
             task.cancel
@@ -257,7 +260,7 @@ object RedissonRedLockLease {
 
         val (remainTimeToLive, ttlOperationDuration) = logTry("Error occurred while processing remainTimeToLive") {
           val startTtl = System.currentTimeMillis
-          val ttlFutures = s.locks.map(lock => FutureConverters.toScala(lock._1.remainTimeToLiveAsync().toCompletableFuture))
+          val ttlFutures = s.locks.map(l => FutureConverters.toScala(l.lock.remainTimeToLiveAsync().toCompletableFuture))
           val ttls = Await.result(Future.sequence(ttlFutures), Duration.Inf)
           val remainTimeToLiveUndefined = -3L
           val remainTimeToLive = ttls.foldLeft(remainTimeToLiveUndefined)((s, ttl) => {
@@ -297,7 +300,6 @@ object RedissonRedLockLease {
 
         s.pipeTo.foreach(_ ! LockResult(locked))
 
-        s.config.lockedCountChangeCallback(s.lockedCount + 1)
         goto(Locked).using(s.copy(
           expireTask = Some(expireTask),
           lockedCount = s.lockedCount + 1,
@@ -326,8 +328,6 @@ object RedissonRedLockLease {
 }
 
 class RedissonRedLockLease(override val settings: LeaseSettings, val actorSystem: ExtendedActorSystem) extends Lease(settings) {
-
-  import RedissonRedLockLease._
 
   private val lockCount = new AtomicInteger(0)
   private val customDispatcherName = if (settings.leaseConfig.hasPath("dispatcher")) {
@@ -381,7 +381,7 @@ class RedissonRedLockLease(override val settings: LeaseSettings, val actorSystem
         logger.debug("Acquire duration (" + locked + "): " + (System.currentTimeMillis() - start))
         locked
       case LockFailed(throwable) =>
-        logger.debug("Failed acquire duration: " + (System.currentTimeMillis() - start))
+        logger.error("Failed acquire duration: " + (System.currentTimeMillis() - start))
         throw throwable
     }
   }
@@ -400,7 +400,7 @@ class RedissonRedLockLease(override val settings: LeaseSettings, val actorSystem
         logger.debug("Release duration (" + unlocked + "): " + (System.currentTimeMillis() - start))
         unlocked
       case ReleaseFailed(throwable) =>
-        logger.debug("Failed release duration: " + (System.currentTimeMillis() - start))
+        logger.error("Failed release duration: " + (System.currentTimeMillis() - start))
         throw throwable
     }
   }
