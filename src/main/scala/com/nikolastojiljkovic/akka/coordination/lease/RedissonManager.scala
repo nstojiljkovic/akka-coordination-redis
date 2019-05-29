@@ -86,7 +86,7 @@ object RedissonManager {
 
   def addListenerOnClientShutdown(client: Redisson, leaseLostCallback: Option[Throwable] => Unit, parent: AnyRef): Unit = {
     leaseLostCallbacks
-      .computeIfAbsent(client, client =>
+      .computeIfAbsent(client, _ =>
         new ConcurrentHashMap[AnyRef, Option[Throwable] => Unit]).put(parent, leaseLostCallback)
   }
 
@@ -98,23 +98,23 @@ object RedissonManager {
 
   def addLockReference(actorSystem: ActorSystem, client: Redisson, lock: RLock, ownerThreadId: Long): Unit = {
     lockReferences
-      .computeIfAbsent(actorSystem, actorSystem =>
+      .computeIfAbsent(actorSystem, _ =>
         new ConcurrentHashMap[Redisson, ConcurrentHashMap[RLock, Long]])
-      .computeIfAbsent(client, client =>
+      .computeIfAbsent(client, _ =>
         new ConcurrentHashMap[RLock, Long]).put(lock, ownerThreadId)
   }
 
   def removeLockReference(actorSystem: ActorSystem, client: Redisson, lock: RLock): Unit = {
     lockReferences
-      .computeIfAbsent(actorSystem, actorSystem =>
+      .computeIfAbsent(actorSystem, _ =>
         new ConcurrentHashMap[Redisson, ConcurrentHashMap[RLock, Long]])
-      .computeIfAbsent(client, client =>
+      .computeIfAbsent(client, _ =>
         new ConcurrentHashMap[RLock, Long]).remove(lock)
   }
 
   private def terminateActorSystemClients(system: ActorSystem)(implicit ec: ExecutionContext): Unit = {
     if (lockReferences.containsKey(system)) {
-      lockReferences.get(system).forEach((client: Redisson, locks: ConcurrentHashMap[RLock, Long]) => {
+      lockReferences.get(system).forEach((_, locks: ConcurrentHashMap[RLock, Long]) => {
         locks.forEach(RedissonManager.releaseLockIfPossible)
         locks.clear()
       })
@@ -155,7 +155,7 @@ object RedissonManager {
 
   private def processLeaseLostCallbacks(client: Redisson, reason: String): Unit = {
     if (leaseLostCallbacks.containsKey(client)) {
-      leaseLostCallbacks.get(client).forEach((p, callback) => {
+      leaseLostCallbacks.get(client).forEach((_, callback) => {
         callback.apply(Some(new RuntimeException(reason)))
       })
       leaseLostCallbacks.get(client).clear()

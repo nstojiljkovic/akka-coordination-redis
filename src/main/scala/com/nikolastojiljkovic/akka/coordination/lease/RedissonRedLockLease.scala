@@ -80,6 +80,8 @@ object RedissonRedLockLease {
     expireTask: Option[TimerTask] = None
   ) extends Data {
     def looseLease(message: Any, parent: AnyRef)(implicit actorSystem: ActorSystem): Data = {
+      config.lockedCountChangeCallback(0)
+      pipeTo.foreach(_ ! message)
       expireTask match {
         case Some(task) =>
           task.cancel
@@ -90,8 +92,6 @@ object RedissonRedLockLease {
         RedissonManager.removeListenerOnClientShutdown(lock._2, parent)
         RedissonManager.removeLockReference(actorSystem, lock._2, lock._1)
       })
-      pipeTo.foreach(_ ! message)
-      config.lockedCountChangeCallback(0)
       StateDataWithoutLock(config)
     }
   }
@@ -207,7 +207,7 @@ object RedissonRedLockLease {
         FutureConverters.toScala(
           s.redLock.unlockAsync.toCompletableFuture
         ).andThen {
-          case Success(r) => self ! ReleaseResult(true)
+          case Success(_) => self ! ReleaseResult(true)
           case Failure(t) => self ! ReleaseFailed(t)
         }
         goto(Busy).using(s.copy(
@@ -216,6 +216,7 @@ object RedissonRedLockLease {
 
       case Event(LeaseLost(throwable), s: StateDataWithLock) =>
         log.debug("Lease lost, number of callbacks: " + s.leaseLostCallbacks.size)
+        s.config.lockedCountChangeCallback(0)
         s.leaseLostCallbacks.foreach(fn => {
           fn.apply(throwable)
         })
@@ -309,11 +310,11 @@ object RedissonRedLockLease {
     }
 
     whenUnhandled {
-      case Event(Lock(_), s: Data) =>
+      case Event(Lock(_), _) =>
         sender() ! LockResult(false)
         stay
 
-      case Event(Release, s: StateDataWithLock) =>
+      case Event(Release, _) =>
         sender() ! ReleaseResult(false)
         stay
 
