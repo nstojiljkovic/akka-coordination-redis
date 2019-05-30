@@ -70,13 +70,13 @@ redisson-red-lock-lease {
   lease-class = "com.nikolastojiljkovic.akka.coordination.lease.RedissonRedLockLease"
 
   # if the node that acquired the leases crashes, how long should the lease be held before another owner can get it
-  heartbeat-timeout = 30s
+  heartbeat-timeout = 300s
 
   # interval for communicating with the third party to confirm the lease is still held
-  heartbeat-interval = 6s
+  heartbeat-interval = 15s
 
   # interval to time out after acquire and release calls or document
-  lease-operation-timeout = 1s
+  lease-operation-timeout = 5s
 
   # minimum number of (single) locks required, defaults to N / 2 + 1 if not defined
   min-locks-amount = 4
@@ -88,11 +88,12 @@ redisson-red-lock-lease {
   default-server {
     singleServerConfig {
       address = "redis://10.10.11.40:6379"
-      connectionMinimumIdleSize = 1
-      connectionPoolSize = 1
+      connectionMinimumIdleSize = 8
+      connectionPoolSize = 16
     }
-    threads = 2
-    nettyThreads = 2
+    threads = 64
+    nettyThreads = 64
+    transportMode = NIO
     transportMode = NIO
   }
 

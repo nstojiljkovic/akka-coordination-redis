@@ -183,6 +183,10 @@ object RedissonRedLockLease {
           ))
         }
 
+      case Event(Release, _) =>
+        sender() ! ReleaseResult(true)
+        stay
+
     }
 
     when(Locked) {
@@ -345,7 +349,7 @@ class RedissonRedLockLease(override val settings: LeaseSettings, val actorSystem
   }
   private val actor = actorSystem.actorOf(
     props,
-    settings.leaseName + "-" + UUID.randomUUID().toString
+    settings.leaseName.replaceAll("[^a-zA-Z0-9-_.*$+:@&=,!~';.]", "_") + "-" + UUID.randomUUID().toString
   )
 
   private val logger = LoggerFactory.getLogger(getClass)
