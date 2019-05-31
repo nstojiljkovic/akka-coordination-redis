@@ -16,11 +16,11 @@
 
 package com.nikolastojiljkovic.akka.coordination.lease
 
-import java.util.{Timer, TimerTask, UUID}
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
-import akka.actor.{ActorRef, ActorSystem, ExtendedActorSystem, FSM, Props}
+import akka.actor._
 import akka.coordination.lease.LeaseSettings
 import akka.coordination.lease.scaladsl.Lease
 import akka.event.LoggingAdapter
@@ -28,15 +28,15 @@ import akka.pattern.ask
 import akka.util.Timeout
 import com.typesafe.config.{Config, ConfigFactory, ConfigRenderOptions}
 import org.redisson.Redisson
-import org.redisson.api.RLock
 import org.redisson.config.{Config => RedissonConfig}
 import org.slf4j.LoggerFactory
 
 import collection.JavaConverters._
 import LogHelper._
 import RedissonRedLockLease._
+
 import scala.compat.java8.FutureConverters
-import scala.concurrent.{Await, ExecutionContext, Future, TimeoutException}
+import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration._
 import scala.language.{implicitConversions, postfixOps}
 import scala.util.{Failure, Success}
@@ -54,7 +54,6 @@ object RedissonRedLockLease {
 
   final case class LockConfig
   (
-    timer: Timer,
     lockedCountChangeCallback: Int => Unit,
     leaseSettings: LeaseSettings,
     clientConfigs: Seq[RedissonConfig],
@@ -68,7 +67,7 @@ object RedissonRedLockLease {
     config: LockConfig
   ) extends Data
 
-  final case class LockAndClient(lock: RLock, client: Redisson)
+  final case class LockAndClient(lock: RedissonLockWithCustomOwnerAndFixedLeaseTime, client: Redisson)
 
   final case class StateDataWithLock
   (
@@ -79,15 +78,14 @@ object RedissonRedLockLease {
     clients: Seq[Redisson],
     locks: Seq[LockAndClient],
     leaseLostCallbacks: Seq[Option[Throwable] => Unit],
-    expireTask: Option[TimerTask] = None
+    renewTask: Option[Cancellable] = None
   ) extends Data {
     def looseLease(message: Any, parent: AnyRef)(implicit actorSystem: ActorSystem): Data = {
       config.lockedCountChangeCallback(0)
       pipeTo.foreach(_ ! message)
-      expireTask match {
+      renewTask match {
         case Some(task) =>
           task.cancel
-          config.timer.purge
         case _ =>
       }
       locks.foreach(lock => {
@@ -101,11 +99,17 @@ object RedissonRedLockLease {
   // received events
   final case class Lock(leaseLostCallback: Option[Option[Throwable] => Unit])
 
-  final case class LockResult(locked: Boolean)
+  final case class LockResult(locked: Boolean, startTime: Long)
 
   final case class LockFailed(throwable: Throwable)
 
   final case class LeaseLost(throwable: Option[Throwable])
+
+  final case object Renew
+
+  final case class RenewResult(locked: Boolean, startTime: Long)
+
+  final case class RenewFailed(throwable: Throwable)
 
   final case object Release
 
@@ -113,7 +117,7 @@ object RedissonRedLockLease {
 
   final case class ReleaseFailed(throwable: Throwable)
 
-  class ActorFSM(lockedCountChangeCallback: Int => Unit, leaseSettings: LeaseSettings) extends FSM[State, Data] {
+  class ActorFSM(lockedCountChangeCallback: Int => Unit, leaseSettings: LeaseSettings) extends FSM[State, Data] with Stash {
 
     import context.dispatcher
 
@@ -125,7 +129,7 @@ object RedissonRedLockLease {
         .asScala.map(identity)(collection.breakOut)
         .flatMap(config => {
           logTry("Failed to parse RedissonRedLockLease config") {
-            val fallbackConfig = ConfigFactory.parseString("lockWatchdogTimeout = " + leaseSettings.timeoutSettings.getHeartbeatInterval.toMillis)
+            val fallbackConfig = ConfigFactory.parseString("lockWatchdogTimeout = " + leaseSettings.timeoutSettings.heartbeatTimeout.toMillis)
             org.redisson.config.Config.fromJSON(config.withFallback(fallbackConfig).render(ConfigRenderOptions.concise))
           }.toOption
         })
@@ -133,9 +137,8 @@ object RedissonRedLockLease {
         val fallbackConfig: Config = ConfigFactory.parseString("min-locks-amount = " + (clientConfigs.size / 2 + 1))
         leaseSettings.leaseConfig.withFallback(fallbackConfig).getInt("min-locks-amount")
       }
-      val timer = new Timer
 
-      StateDataWithoutLock(LockConfig(timer, lockedCountChangeCallback, leaseSettings, clientConfigs, minLocksAmount))
+      StateDataWithoutLock(LockConfig(lockedCountChangeCallback, leaseSettings, clientConfigs, minLocksAmount))
     })
 
 
@@ -151,24 +154,27 @@ object RedissonRedLockLease {
         if (s.config.minLocksAmount > clients.size) {
           origSender ! LockFailed(
             new RuntimeException("Could not connect to minimum of " + s.config.minLocksAmount + " Redis servers. Failing without even trying to lock."))
-          stay
+          stay()
         } else {
           val locks = clients.map(client => {
-            val lock = new RedissonLockWithCustomOwner(client.getConnectionManager.getCommandExecutor, leaseSettings.leaseName, leaseSettings.ownerName)
+            val lock = new RedissonLockWithCustomOwnerAndFixedLeaseTime(
+              client.getConnectionManager.getCommandExecutor,
+              leaseSettings.timeoutSettings.heartbeatTimeout.toMillis,
+              leaseSettings.leaseName,
+              leaseSettings.ownerName)
             RedissonManager.addLockReference(context.system, client, lock, Thread.currentThread.getId)
             RedissonManager.addListenerOnClientShutdown(client, t => self ! LeaseLost(t), this)
             LockAndClient(lock, client)
           })
           val redLock = new RedissonRedLockWithCustomMinLocks(s.config.minLocksAmount, locks.map(_.lock): _*)
-          val deltaTime = System.currentTimeMillis() - startTime
           FutureConverters.toScala(
             redLock.tryLockAsync(
-              leaseSettings.timeoutSettings.getOperationTimeout.toMillis - deltaTime,
-              leaseSettings.timeoutSettings.getHeartbeatTimeout.toMillis - deltaTime,
+              leaseSettings.timeoutSettings.operationTimeout.toMillis,
+              -1,
               TimeUnit.MILLISECONDS
             ).toCompletableFuture
           ).andThen {
-            case Success(r) => self ! LockResult(r)
+            case Success(r) => self ! LockResult(r, startTime)
             case Failure(t) => self ! LockFailed(t)
           }
           goto(Busy).using(StateDataWithLock(
@@ -179,27 +185,38 @@ object RedissonRedLockLease {
             clients = clients,
             locks = locks,
             leaseLostCallbacks = leaseLostCallback.toSeq,
-            expireTask = None
+            renewTask = None
           ))
         }
 
       case Event(Release, _) =>
         sender() ! ReleaseResult(true)
-        stay
+        stay()
 
     }
 
     when(Locked) {
+      case Event(Renew, s: StateDataWithLock) =>
+        log.debug("Trying to renew lease " + leaseSettings.leaseName)
+        val origSender = sender()
+        val startTime = System.currentTimeMillis()
+        Future.sequence(s.locks.map(l => l.lock.renewAsync)).andThen {
+          case Success(r) => self ! RenewResult(r.forall(identity), startTime)
+          case Failure(t) => self ! RenewFailed(t)
+        }
+        goto(Busy)
+
       case Event(Lock(leaseLostCallback), s: StateDataWithLock) =>
         val origSender = sender()
+        val startTime = System.currentTimeMillis()
         FutureConverters.toScala(
           s.redLock.tryLockAsync(
-            leaseSettings.timeoutSettings.getOperationTimeout.toMillis,
-            leaseSettings.timeoutSettings.getHeartbeatTimeout.toMillis,
+            leaseSettings.timeoutSettings.operationTimeout.toMillis,
+            -1,
             TimeUnit.MILLISECONDS
           ).toCompletableFuture
         ).andThen {
-          case Success(r) => self ! LockResult(r)
+          case Success(r) => self ! LockResult(r, startTime)
           case Failure(t) => self ! LockFailed(t)
         }
         goto(Busy).using(s.copy(
@@ -230,6 +247,41 @@ object RedissonRedLockLease {
     }
 
     when(Busy) {
+      case Event(Lock(_), _) =>
+        stash()
+        stay()
+
+      case Event(Release, _) =>
+        stash()
+        stay()
+
+      case Event(RenewResult(success, startTime), s: StateDataWithLock) if success =>
+        log.debug("Successfully renewed lease " + leaseSettings.leaseName + " in " + (System.currentTimeMillis() - startTime) + "ms")
+        s.renewTask match {
+          case Some(task) =>
+            task.cancel
+          case _ =>
+        }
+        log.debug("Scheduling renew of lease " + leaseSettings.leaseName + " in " + s.config.leaseSettings.timeoutSettings.heartbeatInterval)
+        val renewTask = context.system.scheduler.scheduleOnce(
+          s.config.leaseSettings.timeoutSettings.heartbeatInterval,
+          self,
+          Renew
+        )
+        goto(Locked).using(s.copy(renewTask = Some(renewTask)))
+
+      case Event(RenewResult(success, startTime), s: StateDataWithLock) if !success =>
+        log.warning("Failed renewal of lease " + leaseSettings.leaseName + " in " + (System.currentTimeMillis() - startTime) + "ms")
+        // @todo: maybe we could try to clean up the locks
+        self ! LockFailed(new RuntimeException("Could not renew lock(s)."))
+        stay()
+
+      case Event(RenewFailed(t), _) =>
+        log.error(t, "Failed renewal of lease " + leaseSettings.leaseName)
+        // @todo: maybe we could try to clean up the locks
+        self ! LockFailed(t)
+        stay()
+
       case Event(ReleaseResult(unlocked), s: StateDataWithLock) if unlocked =>
         if (s.lockedCount == 1) {
           goto(Idle).using(s.looseLease(ReleaseResult(true), this))
@@ -243,86 +295,58 @@ object RedissonRedLockLease {
 
       case Event(ReleaseResult(unlocked), s: StateDataWithLock) if !unlocked =>
         s.pipeTo.foreach(_ ! ReleaseResult(false))
-        stay().using(s.copy(pipeTo = None))
+        goto(Locked).using(s.copy(pipeTo = None))
 
       case Event(ReleaseFailed(t), s: StateDataWithLock) =>
         s.pipeTo.foreach(_ ! ReleaseFailed(t))
-        stay().using(s.copy(pipeTo = None))
+        goto(Locked).using(s.copy(pipeTo = None))
 
-      case Event(LockResult(locked), s: StateDataWithLock) if !locked =>
-        goto(Idle).using(s.looseLease(LockResult(locked), this))
-
-      case Event(LockResult(locked), s: StateDataWithLock) if locked =>
+      case Event(LockResult(locked, startTime), s: StateDataWithLock) if locked =>
         s.config.lockedCountChangeCallback(s.lockedCount + 1)
 
-        s.expireTask match {
+        s.renewTask match {
           case Some(task) =>
             task.cancel
-            s.config.timer.purge
           case _ =>
         }
+        log.debug("Scheduling renew of lease " + leaseSettings.leaseName + " in " + s.config.leaseSettings.timeoutSettings.heartbeatInterval)
 
-        val (remainTimeToLive, ttlOperationDuration) = logTry("Error occurred while processing remainTimeToLive") {
-          val startTtl = System.currentTimeMillis
-          val ttlFutures = s.locks.map(l => FutureConverters.toScala(l.lock.remainTimeToLiveAsync().toCompletableFuture))
-          val ttls = Await.result(Future.sequence(ttlFutures), Duration.Inf)
-          val remainTimeToLiveUndefined = -3L
-          val remainTimeToLive = ttls.foldLeft(remainTimeToLiveUndefined)((s, ttl) => {
-            log.debug("Single lock expiry: " + ttl)
-            if (s < 0) {
-              ttl
-            } else {
-              if (ttl < 0) {
-                s
-              } else {
-                Math.min(s, ttl)
-              }
-            }
-          })
-          val ttlOperationDuration = System.currentTimeMillis - startTtl
-          (remainTimeToLive, ttlOperationDuration)
-        }.toOption.getOrElse((-1L, 0L))
+        val renewTask = context.system.scheduler.scheduleOnce(
+          s.config.leaseSettings.timeoutSettings.heartbeatInterval,
+          self,
+          Renew
+        )
 
-        // this is a safe bet for the timeout, a bit over-constrained
-        // better safe than sorry
-        val expiryDelay = if (remainTimeToLive < 0) {
-          s.config.leaseSettings.timeoutSettings.getHeartbeatTimeout.toMillis - s.config.leaseSettings.timeoutSettings.getOperationTimeout.toMillis
-        } else {
-          remainTimeToLive - ttlOperationDuration
-        }
-        log.debug("Evaluated remain time to live " + remainTimeToLive +
-          ", expiry delay " + expiryDelay +
-          ", heartbeat timeout " + s.config.leaseSettings.timeoutSettings.getHeartbeatTimeout.toMillis +
-          ", operation timeout " + s.config.leaseSettings.timeoutSettings.getOperationTimeout.toMillis)
-
-        val expireTask = new TimerTask() {
-          override def run(): Unit = {
-            self ! LeaseLost(Some(new TimeoutException("Lease " + leaseSettings.leaseName + " expired.")))
-          }
-        }
-        s.config.timer.schedule(expireTask, expiryDelay)
-
-        s.pipeTo.foreach(_ ! LockResult(locked))
+        s.pipeTo.foreach(_ ! LockResult(locked, startTime))
 
         goto(Locked).using(s.copy(
-          expireTask = Some(expireTask),
+          renewTask = Some(renewTask),
           lockedCount = s.lockedCount + 1,
           pipeTo = None
         ))
+
+      case Event(LockResult(locked, startTime), s: StateDataWithLock) if !locked =>
+        goto(Idle).using(s.looseLease(LockResult(locked, startTime), this))
 
       case Event(LockFailed(t), s: StateDataWithLock) =>
         goto(Idle).using(s.looseLease(LockFailed(t), this))
 
     }
 
+    // When transitioning into another state, unstash all messages.
+    onTransition {
+      case Busy -> _ =>
+        unstashAll()
+    }
+
     whenUnhandled {
       case Event(Lock(_), _) =>
-        sender() ! LockResult(false)
-        stay
+        sender() ! LockResult(locked = false, System.currentTimeMillis())
+        stay()
 
       case Event(Release, _) =>
         sender() ! ReleaseResult(false)
-        stay
+        stay()
 
     }
 
@@ -381,7 +405,7 @@ class RedissonRedLockLease(override val settings: LeaseSettings, val actorSystem
     (actor ? Lock(leaseLostCallback)).recover({
       case e => LockFailed(e)
     }).map {
-      case LockResult(locked) =>
+      case LockResult(locked, _) =>
         logger.debug("Acquire duration (" + locked + "): " + (System.currentTimeMillis() - start))
         locked
       case LockFailed(throwable) =>

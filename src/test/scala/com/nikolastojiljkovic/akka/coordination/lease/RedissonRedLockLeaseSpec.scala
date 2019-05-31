@@ -133,14 +133,13 @@ class RedissonRedLockLeaseSpec extends WordSpec with Matchers with BeforeAndAfte
       leaseA.checkLease should equal(false)
 
       log.info("Wait a bit more till we start Redis again...")
-      Thread.sleep(leaseA.settings.timeoutSettings.heartbeatInterval.toMillis)
+      Thread.sleep(leaseA.settings.timeoutSettings.operationTimeout.toMillis)
 
       log.info("Starting Redis... " + startRedisCmd)
       val start = getRuntime.exec(Array("bash", "-c", startRedisCmd))
       log.info(scala.io.Source.fromInputStream(start.getErrorStream).mkString)
       log.info(scala.io.Source.fromInputStream(start.getInputStream).mkString)
-
-      Thread.sleep(leaseA.settings.timeoutSettings.heartbeatInterval.toMillis)
+      Thread.sleep(leaseA.settings.timeoutSettings.operationTimeout.toMillis)
 
       val leaseB = LeaseProvider.get(actorSystem).getLease(lockName, "redisson-red-lock-lease", "owner2")
       leaseB.settings.leaseName should equal(lockName)
@@ -188,58 +187,6 @@ class RedissonRedLockLeaseSpec extends WordSpec with Matchers with BeforeAndAfte
       log.info("Release C...")
       Await.result(leaseB.release(), atMost) should equal(true)
       leaseB.checkLease should equal(false)
-    }
-
-    "expire after configured time and call leaseLostCallback" in {
-      val lockName = "test-expired-lease"
-      val probe = new TestProbe(actorSystem)
-
-      val leaseA = LeaseProvider.get(actorSystem).getLease(lockName, "redisson-red-lock-lease", "owner1")
-      leaseA.settings.leaseName should equal(lockName)
-      leaseA.settings.ownerName should equal("owner1")
-      leaseA.settings.leaseConfig.getString("dispatcher") should equal("custom-dispatcher")
-      leaseA.checkLease should equal(false)
-
-      log.info("Lock A 1st time...")
-      Await.result(leaseA.acquire(_ => {
-        log.info("Sending lease-lost")
-        probe.ref ! "lease-lost"
-      }), atMost) should equal(true)
-      leaseA.checkLease should equal(true)
-
-      probe.expectNoMessage(
-        (leaseA.settings.timeoutSettings.getHeartbeatTimeout.toMillis - leaseA.settings.timeoutSettings.getOperationTimeout.toMillis) millis)
-      log.info("Wait till we get lease-lost message...")
-      probe.expectMsg(
-        (2 * leaseA.settings.timeoutSettings.getOperationTimeout.toMillis) millis,
-        "Did not receive lease-lost message!",
-        "lease-lost")
-      leaseA.checkLease should equal(false)
-
-      Thread.sleep(leaseA.settings.timeoutSettings.heartbeatInterval.toMillis)
-
-      // test reentrant lease
-      log.info("Lock A 1st time...")
-      Await.result(leaseA.acquire(_ => {
-        log.info("Sending reentrant-lease-lost")
-        probe.ref ! "reentrant-lease-lost"
-      }), atMost) should equal(true)
-      leaseA.checkLease should equal(true)
-
-      Thread.sleep(leaseA.settings.timeoutSettings.getHeartbeatTimeout.toMillis / 2)
-
-      log.info("Lock A 2nd time...")
-      Await.result(leaseA.acquire, atMost) should equal(true)
-      leaseA.checkLease should equal(true)
-
-      probe.expectNoMessage(
-        (leaseA.settings.timeoutSettings.getHeartbeatTimeout.toMillis - leaseA.settings.timeoutSettings.getOperationTimeout.toMillis) millis)
-      log.info("Wait till we get reentrant-lease-lost message...")
-      probe.expectMsg(
-        (2 * leaseA.settings.timeoutSettings.getOperationTimeout.toMillis) millis,
-        "Did not receive reentrant-lease-lost message!",
-        "reentrant-lease-lost")
-      leaseA.checkLease should equal(false)
     }
 
     "fail if there are not enough Redis servers available" in {

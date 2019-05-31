@@ -20,7 +20,7 @@ import scala.language.implicitConversions
 
 case class LogHelper(error: (String, Throwable) => Unit)
 
-object LogHelper {
+private[lease] object LogHelper {
   implicit def loggingAdapter2Logger(implicit loggingAdapter: akka.event.LoggingAdapter): LogHelper =
     LogHelper((m, t) => {
       loggingAdapter.error(t, m)

@@ -32,7 +32,7 @@ import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.language.implicitConversions
 import LogHelper._
 
-object RedissonManager {
+private[lease] object RedissonManager {
   implicit val logger: Logger = LoggerFactory.getLogger(RedissonManager.getClass)
 
   private val clients = new ConcurrentHashMap[ActorSystem, ConcurrentHashMap[String, Redisson]]
