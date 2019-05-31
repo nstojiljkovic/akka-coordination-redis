@@ -289,6 +289,7 @@ object RedissonRedLockLease {
           s.config.lockedCountChangeCallback(s.lockedCount - 1)
           s.pipeTo.foreach(_ ! ReleaseResult(false))
           goto(Locked).using(s.copy(
+            pipeTo = None,
             lockedCount = s.lockedCount - 1
           ))
         }
