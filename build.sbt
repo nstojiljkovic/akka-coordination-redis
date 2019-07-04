@@ -3,38 +3,16 @@ import ReleaseTransformations._
 import sbt.Keys.{libraryDependencies, name}
 
 name := "Akka Coordination Redis"
-val scalaV = "2.12.8"
+val scala212Version = "2.12.8"
+val scala213Version = "2.13.0"
 val akkaVersion = "2.5.23"
 val configVersion = "1.3.4"
 val scalaJava8CompatVersion = "0.9.0"
 val logbackClassicVersion = "1.2.3"
-val scalaTestVersion = "3.0.7"
+val scalaTestVersion = "3.0.8"
 val specs2Version = "4.5.1"
 
-scalaVersion := scalaV
-
-def macroSettings(scaladocFor210: Boolean): Seq[Setting[_]] = Seq(
-  libraryDependencies ++= Seq(
-    scalaOrganization.value % "scala-compiler" % scalaVersion.value % Provided,
-    scalaOrganization.value % "scala-reflect" % scalaVersion.value % Provided,
-    "org.typelevel" %% "macro-compat" % "1.1.1",
-    compilerPlugin("org.scalamacros" % "paradise" % "2.1.1" cross CrossVersion.patch)
-  ),
-  libraryDependencies ++= {
-    CrossVersion.partialVersion(scalaVersion.value) match {
-      // if scala 2.11+ is used, quasiquotes are merged into scala-reflect.
-      case Some((2, scalaMajor)) if scalaMajor >= 11 => Nil
-      // in Scala 2.10, quasiquotes are provided by macro paradise.
-      case Some((2, 10)) => Seq("org.scalamacros" %% "quasiquotes" % "2.1.0" cross CrossVersion.binary)
-    }
-  },
-  sources in(Compile, doc) := {
-    CrossVersion.partialVersion(scalaVersion.value) match {
-      case Some((2, 10)) if !scaladocFor210 => Nil
-      case _ => (sources in(Compile, doc)).value
-    }
-  }
-)
+scalaVersion := scala213Version
 
 def updateReadmeVersion(selectVersion: sbtrelease.Versions => String) =
   ReleaseStep(action = st => {
@@ -87,7 +65,8 @@ lazy val commonSettings =
       .withWarnDirectEvictions(false)
       .withWarnScalaVersionEviction(true),
     organization := "com.github.nstojiljkovic",
-    scalaVersion := scalaV,
+    scalaVersion := scala213Version,
+    crossScalaVersions := Seq(scala212Version, scala213Version),
     // publish configuration
     releaseVersionFile := baseDirectory.value / "version.sbt",
     publishMavenStyle := true,
@@ -150,7 +129,6 @@ lazy val commonSettings =
 
 lazy val akkaRedisLease = (project in file(".")).configs(Javadoc).settings(javadocSettings: _*).
   settings(commonSettings: _*).
-  settings(macroSettings(scaladocFor210 = false)).
   settings(
     logBuffered in Test := false,
     parallelExecution in Test := false,
@@ -159,7 +137,7 @@ lazy val akkaRedisLease = (project in file(".")).configs(Javadoc).settings(javad
 
     libraryDependencies ++= Seq(
       // redisson
-      "org.redisson" % "redisson" % "3.11.0",
+      "org.redisson" % "redisson" % "3.11.1",
 
       // akka
       "com.typesafe.akka" %% "akka-actor" % akkaVersion,

@@ -120,7 +120,7 @@ not map 1:1 to Akka Lease API. Notable changes and tweaks are listed bellow:
 
 ## Contributing
 
-Please feel ree to create a new pull request for each change or bug fix. Make sure that all of the changes are covered using
+Please feel free to create a new pull request for each change or bug fix. Make sure that all of the changes are covered using
 tests. You can run the full suite of tests using sbt:
 
 ```sbtshell

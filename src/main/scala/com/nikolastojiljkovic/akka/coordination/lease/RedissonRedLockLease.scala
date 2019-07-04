@@ -125,8 +125,7 @@ object RedissonRedLockLease {
     implicit val actorSystem: ActorSystem = context.system
 
     startWith(Idle, {
-      val clientConfigs: Seq[RedissonConfig] = leaseSettings.leaseConfig.getObjectList("servers")
-        .asScala.map(identity)(collection.breakOut)
+      val clientConfigs: Seq[RedissonConfig] = (Seq() ++ leaseSettings.leaseConfig.getObjectList("servers").asScala)
         .flatMap(config => {
           logTry("Failed to parse RedissonRedLockLease config") {
             val fallbackConfig = ConfigFactory.parseString("lockWatchdogTimeout = " + leaseSettings.timeoutSettings.heartbeatTimeout.toMillis)
@@ -200,7 +199,7 @@ object RedissonRedLockLease {
         log.debug("Trying to renew lease " + leaseSettings.leaseName)
         val origSender = sender()
         val startTime = System.currentTimeMillis()
-        Future.sequence(s.locks.map(l => l.lock.renewAsync)).andThen {
+        Future.sequence(s.locks.map(l => l.lock.renewAsync).map(f => FutureConverters.toScala(f.toCompletableFuture))).andThen {
           case Success(r) => self ! RenewResult(r.forall(identity), startTime)
           case Failure(t) => self ! RenewFailed(t)
         }

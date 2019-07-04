@@ -122,8 +122,7 @@ private[lease] object RedissonManager {
       lockReferences.remove(system)
     }
     if (clients.containsKey(system)) {
-      val futures = clients.get(system).values
-        .asScala.map(identity)(collection.breakOut)
+      val futures = (Seq() ++ clients.get(system).values.asScala)
         .map((client: Redisson) => Future {
           logTry("Error occurred while shutting down Redisson client on actor system termination") {
             logger.debug("Shutting down " + client.getConfig.toJSON)
