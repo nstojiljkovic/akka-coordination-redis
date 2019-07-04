@@ -23,7 +23,7 @@ Add `akka-coordination-redis` to sbt dependencies:
 
 ```scala
 libraryDependencies ++= Seq(
-  "com.github.nstojiljkovic" %% "akka-coordination-redis" % "0.2.1"
+  "com.github.nstojiljkovic" %% "akka-coordination-redis" % "0.2.2"
 )
 ```
 
