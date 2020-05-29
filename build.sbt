@@ -3,13 +3,13 @@ import ReleaseTransformations._
 import sbt.Keys.{libraryDependencies, name}
 
 name := "Akka Coordination Redis"
-val scala212Version = "2.12.8"
-val scala213Version = "2.13.0"
-val akkaVersion = "2.5.23"
-val configVersion = "1.3.4"
-val scalaJava8CompatVersion = "0.9.0"
+val scala212Version = "2.12.11"
+val scala213Version = "2.13.2"
+val akkaVersion = "2.6.5"
+val configVersion = "1.4.0"
+val scalaJava8CompatVersion = "0.9.1"
 val logbackClassicVersion = "1.2.3"
-val scalaTestVersion = "3.0.8"
+val scalaTestVersion = "3.1.2"
 val specs2Version = "4.5.1"
 
 scalaVersion := scala213Version
@@ -42,7 +42,7 @@ def updateReadmeVersion(selectVersion: sbtrelease.Versions => String) =
 lazy val Javadoc = config("genjavadoc") extend Compile
 
 lazy val javadocSettings = inConfig(Javadoc)(Defaults.configSettings) ++ Seq(
-  addCompilerPlugin("com.typesafe.genjavadoc" %% "genjavadoc-plugin" % "0.13" cross CrossVersion.full),
+  addCompilerPlugin("com.typesafe.genjavadoc" %% "genjavadoc-plugin" % "0.16" cross CrossVersion.full),
   scalacOptions += s"-P:genjavadoc:out=${target.value}/java",
   packageDoc in Compile := (packageDoc in Javadoc).value,
   sources in Javadoc :=
@@ -137,7 +137,7 @@ lazy val akkaRedisLease = (project in file(".")).configs(Javadoc).settings(javad
 
     libraryDependencies ++= Seq(
       // redisson
-      "org.redisson" % "redisson" % "3.11.1",
+      "org.redisson" % "redisson" % "3.13.0",
 
       // akka
       "com.typesafe.akka" %% "akka-actor" % akkaVersion,

@@ -63,20 +63,8 @@ private[lease] object RedissonManager {
           // we simplify the implementation, we call leaseLostCallback on any server disconnect
           // * in theory, this might be only one of the servers of a cluster
           // * in practice, RedissonManager will only be used for locks on multiple single server instances
-          if (listenerIds.containsKey(client)) {
-            client.getConnectionManager.getConnectionEventsHub.removeListener(listenerIds.get(client))
-            listenerIds.remove(client)
-          }
-          // remove the client so a new clean connection is retried on next usage
-          if (clients.containsKey(actorSystem)) clients.get(actorSystem).remove(k)
+
           processLeaseLostCallbacks(client, "Disconnected from " + addr.toString + ".")
-          // force unlock all the single locks we might have
-          if (lockReferences.containsKey(actorSystem) && lockReferences.get(actorSystem).containsKey(client)) {
-            // lockReferences.get(actorSystem).get(client).forEach(RedissonManager::releaseLockIfPossible);
-            lockReferences.get(actorSystem).get(client).clear()
-            lockReferences.get(actorSystem).remove(client)
-          }
-          client.shutdown()
         }
       })
       listenerIds.put(client, listenerId)
