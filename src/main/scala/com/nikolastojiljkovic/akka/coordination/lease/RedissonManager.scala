@@ -17,6 +17,7 @@
 package com.nikolastojiljkovic.akka.coordination.lease
 
 import java.net.InetSocketAddress
+import java.util.{Timer, TimerTask}
 import java.util.concurrent.{ConcurrentHashMap, TimeUnit}
 
 import akka.actor.ActorSystem
@@ -39,10 +40,11 @@ private[lease] object RedissonManager {
   private val lockReferences = new ConcurrentHashMap[ActorSystem, ConcurrentHashMap[Redisson, ConcurrentHashMap[RLock, Long]]]
   private val listenerIds = new ConcurrentHashMap[Redisson, Integer]
   private val leaseLostCallbacks = new ConcurrentHashMap[Redisson, ConcurrentHashMap[AnyRef, Option[Throwable] => Unit]]
+  private val timer = new Timer
   private val clientShutdownQuietPeriod = 2000
   private val clientShutdownTimeout = 5000
 
-  def getClient(config: Config, actorSystem: ActorSystem)(implicit ec: ExecutionContext): Redisson = {
+  def getClient(config: Config, actorSystem: ActorSystem)(implicit ec: ExecutionContext): Redisson = this.synchronized {
     val key = logTry("Failed to convert Redisson config to YAML.") {
       config.toYAML
     }.toOption.getOrElse(config.toString)
@@ -60,11 +62,7 @@ private[lease] object RedissonManager {
         }
 
         override def onDisconnect(addr: InetSocketAddress): Unit = {
-          // we simplify the implementation, we call leaseLostCallback on any server disconnect
-          // * in theory, this might be only one of the servers of a cluster
-          // * in practice, RedissonManager will only be used for locks on multiple single server instances
-
-          processLeaseLostCallbacks(client, "Disconnected from " + addr.toString + ".")
+          onClientDisconnect(k, client, actorSystem, addr)
         }
       })
       listenerIds.put(client, listenerId)
@@ -72,19 +70,47 @@ private[lease] object RedissonManager {
     })
   }
 
-  def addListenerOnClientShutdown(client: Redisson, leaseLostCallback: Option[Throwable] => Unit, parent: AnyRef): Unit = {
+  def onClientDisconnect(clientKey: String, client: Redisson, actorSystem: ActorSystem, addr: InetSocketAddress): Unit = this.synchronized {
+    // we simplify the implementation, we call leaseLostCallback on any server disconnect
+    // * in theory, this might be only one of the servers of a cluster
+    // * in practice, RedissonManager will only be used for locks on multiple single server instances
+
+    if (listenerIds.containsKey(client)) {
+      client.getConnectionManager.getConnectionEventsHub.removeListener(listenerIds.get(client))
+      listenerIds.remove(client)
+    }
+    // remove the client so a new clean connection is retried on next usage
+    if (clients.containsKey(actorSystem)) clients.get(actorSystem).remove(clientKey)
+
+    processLeaseLostCallbacks(client, "Disconnected from " + addr.toString + ".")
+
+    // force unlock all the single locks we might have
+    if (lockReferences.containsKey(actorSystem) && lockReferences.get(actorSystem).containsKey(client)) {
+      // lockReferences.get(actorSystem).get(client).forEach(RedissonManager::releaseLockIfPossible);
+      lockReferences.get(actorSystem).get(client).clear()
+      lockReferences.get(actorSystem).remove(client)
+    }
+
+    timer.schedule(new TimerTask {
+      override def run(): Unit = {
+        client.shutdown(clientShutdownQuietPeriod, clientShutdownTimeout, TimeUnit.MILLISECONDS)
+      }
+    }, clientShutdownQuietPeriod)
+  }
+
+  def addListenerOnClientShutdown(client: Redisson, leaseLostCallback: Option[Throwable] => Unit, parent: AnyRef): Unit = this.synchronized {
     leaseLostCallbacks
       .computeIfAbsent(client, _ =>
         new ConcurrentHashMap[AnyRef, Option[Throwable] => Unit]).put(parent, leaseLostCallback)
   }
 
-  def removeListenerOnClientShutdown(client: Redisson, parent: AnyRef): Unit = {
+  def removeListenerOnClientShutdown(client: Redisson, parent: AnyRef): Unit = this.synchronized {
     if (leaseLostCallbacks.containsKey(client) && leaseLostCallbacks.get(client).containsKey(parent)) {
       leaseLostCallbacks.get(client).remove(parent)
     }
   }
 
-  def addLockReference(actorSystem: ActorSystem, client: Redisson, lock: RLock, ownerThreadId: Long): Unit = {
+  def addLockReference(actorSystem: ActorSystem, client: Redisson, lock: RLock, ownerThreadId: Long): Unit = this.synchronized {
     lockReferences
       .computeIfAbsent(actorSystem, _ =>
         new ConcurrentHashMap[Redisson, ConcurrentHashMap[RLock, Long]])
@@ -92,7 +118,7 @@ private[lease] object RedissonManager {
         new ConcurrentHashMap[RLock, Long]).put(lock, ownerThreadId)
   }
 
-  def removeLockReference(actorSystem: ActorSystem, client: Redisson, lock: RLock): Unit = {
+  def removeLockReference(actorSystem: ActorSystem, client: Redisson, lock: RLock): Unit = this.synchronized {
     lockReferences
       .computeIfAbsent(actorSystem, _ =>
         new ConcurrentHashMap[Redisson, ConcurrentHashMap[RLock, Long]])
@@ -129,7 +155,7 @@ private[lease] object RedissonManager {
     }
   }
 
-  private def releaseLockIfPossible(lock: RLock, ownerThreadId: Long): Unit = {
+  private def releaseLockIfPossible(lock: RLock, ownerThreadId: Long): Unit = this.synchronized {
     logTry("Error occurred while processing " + lock.getName) {
       if (lock.isLocked) if (lock.isHeldByThread(ownerThreadId)) {
         logger.debug("Unlocking " + lock.getName + ", held by thread " + ownerThreadId)
@@ -140,7 +166,7 @@ private[lease] object RedissonManager {
     }
   }
 
-  private def processLeaseLostCallbacks(client: Redisson, reason: String): Unit = {
+  private def processLeaseLostCallbacks(client: Redisson, reason: String): Unit = this.synchronized {
     if (leaseLostCallbacks.containsKey(client)) {
       leaseLostCallbacks.get(client).forEach((_, callback) => {
         callback.apply(Some(new RuntimeException(reason)))
